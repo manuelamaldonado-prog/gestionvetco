@@ -9,10 +9,29 @@ export default function ClientDetail() {
     const { clients, practices, addJob, addPayment, updateJob, deleteJob, getClientHistory, getClientBalance, updateClient, deletePayment, getIvaRateForClient, businessInfo } = useData();
 
     const client = clients.find(c => c.id === id);
-    const history = getClientHistory(id);
+    const ivaRate = getIvaRateForClient(id);
+
+    // Calculate History with Running Balance
+    const rawHistory = getClientHistory(id);
+    // rawHistory is DESC (Newest First). Reverse to get Oldest First for calculation.
+    const ascHistory = [...rawHistory].reverse();
+    
+    let runningBalance = 0;
+    const historyWithBalance = ascHistory.map(item => {
+        if (item.type === 'JOB') {
+            const amount = Number(item.total) * (1 + ivaRate);
+            runningBalance += amount;
+        } else {
+            const amount = Number(item.amount);
+            runningBalance -= amount;
+        }
+        return { ...item, balance: runningBalance };
+    });
+    
+    const history = historyWithBalance.reverse(); // Back to DESC for display
+    
     const balance = getClientBalance(id);
 
-    const ivaRate = getIvaRateForClient(id);
     const estimatedNet = balance / (1 + ivaRate);
     const estimatedIVA = balance - estimatedNet;
 
@@ -31,7 +50,14 @@ export default function ClientDetail() {
         amount: '', method: 'CASH', date: new Date().toLocaleDateString('en-CA'),
         chequeNumber: '', chequeBank: '', chequeDate: '',
         transferNumber: '', transferBank: '',
-        destination: '' // New Field
+        destination: '', // New Field
+        paymentType: 'BLANCO', // BLANCO or OTRO
+        cheques: [] // Array for multiple cheques
+    });
+
+    // State for new cheque input
+    const [newCheque, setNewCheque] = useState({
+        bank: '', number: '', date: '', amount: '', destination: ''
     });
 
     const [reportDates, setReportDates] = useState({
@@ -90,15 +116,51 @@ export default function ClientDetail() {
     const submitPayment = (e) => {
         e.preventDefault();
         if (!payData.amount) return;
-        addPayment({ ...payData, clientId: id });
+        
+        // Prepare payment object
+        const paymentPayload = { ...payData, clientId: id };
+        
+        // If method is CHEQUE and we have multiple cheques, ensure compatibility
+        if (payData.method === 'CHEQUE' && payData.cheques && payData.cheques.length > 0) {
+            // We can leave legacy fields empty or put a summary
+            paymentPayload.chequeBank = 'Múltiples';
+            paymentPayload.chequeNumber = `${payData.cheques.length} cheques`;
+        }
+
+        addPayment(paymentPayload);
+        
         setPayData({
             ...payData,
             amount: '',
             chequeNumber: '', chequeBank: '',
             transferNumber: '', transferBank: '',
-            destination: ''
+            destination: '',
+            paymentType: 'BLANCO',
+            cheques: []
         });
         setActiveTab('history');
+    };
+
+    const addCheque = () => {
+        if (!newCheque.bank || !newCheque.number || !newCheque.amount || !newCheque.date) {
+            alert('Complete todos los campos del cheque');
+            return;
+        }
+        setPayData(prev => ({
+            ...prev,
+            cheques: [...prev.cheques, { ...newCheque }],
+            amount: (Number(prev.amount || 0) + Number(newCheque.amount)).toFixed(2) // Update total amount
+        }));
+        setNewCheque({ bank: '', number: '', date: '', amount: '', destination: '' });
+    };
+
+    const removeCheque = (index) => {
+        const chequeToRemove = payData.cheques[index];
+        setPayData(prev => ({
+            ...prev,
+            cheques: prev.cheques.filter((_, i) => i !== index),
+            amount: (Number(prev.amount) - Number(chequeToRemove.amount)).toFixed(2)
+        }));
     };
 
     // Edit Handlers
@@ -571,8 +633,17 @@ export default function ClientDetail() {
                             <input type="date" className="form-input" value={payData.date} onChange={e => setPayData({ ...payData, date: e.target.value })} required />
                         </div>
                         <div className="form-group">
-                            <label className="form-label">Monto</label>
-                            <input type="number" className="form-input" value={payData.amount} onChange={e => setPayData({ ...payData, amount: e.target.value })} step="0.01" required />
+                            <label className="form-label">Monto Total</label>
+                            <input 
+                                type="number" 
+                                className="form-input" 
+                                value={payData.amount} 
+                                onChange={e => setPayData({ ...payData, amount: e.target.value })} 
+                                step="0.01" 
+                                required 
+                                readOnly={payData.method === 'CHEQUE'} // Read-only for cheques as it's sum
+                                style={payData.method === 'CHEQUE' ? { background: '#f0f0f0' } : {}}
+                            />
                         </div>
                         <div className="form-group">
                             <label className="form-label">Forma de Pago</label>
@@ -580,6 +651,14 @@ export default function ClientDetail() {
                                 <option value="CASH">Efectivo</option>
                                 <option value="TRANSFER">Transferencia</option>
                                 <option value="CHEQUE">Cheque</option>
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Tipo de Ingreso</label>
+                            <select className="form-input" value={payData.paymentType} onChange={e => setPayData({ ...payData, paymentType: e.target.value })}>
+                                <option value="BLANCO">En Blanco (Oficial)</option>
+                                <option value="OTRO">Otro (X)</option>
                             </select>
                         </div>
 
@@ -605,10 +684,41 @@ export default function ClientDetail() {
 
                         {payData.method === 'CHEQUE' && (
                             <div style={{ padding: '1rem', background: 'var(--background)', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
-                                <h4 className="text-sm" style={{ marginBottom: '0.5rem' }}>Datos del Cheque</h4>
-                                <div className="form-group"><input placeholder="Banco" className="form-input" value={payData.chequeBank} onChange={e => setPayData({ ...payData, chequeBank: e.target.value })} /></div>
-                                <div className="form-group"><input placeholder="Número" className="form-input" value={payData.chequeNumber} onChange={e => setPayData({ ...payData, chequeNumber: e.target.value })} /></div>
-                                <div className="form-group"><label className="text-sm">Fecha Cobro</label><input type="date" className="form-input" value={payData.chequeDate} onChange={e => setPayData({ ...payData, chequeDate: e.target.value })} /></div>
+                                <h4 className="text-sm" style={{ marginBottom: '0.5rem' }}>Carga de Cheques</h4>
+                                
+                                {/* List of added cheques */}
+                                {payData.cheques.length > 0 && (
+                                    <div style={{ marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                        {payData.cheques.map((c, index) => (
+                                            <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--surface-hover)' }}>
+                                                <div style={{ fontSize: '0.85rem' }}>
+                                                    <div><strong>{c.bank}</strong> - #{c.number}</div>
+                                                    <div className="text-muted">${Number(c.amount).toLocaleString('es-AR')} - {c.date}</div>
+                                                </div>
+                                                <button type="button" onClick={() => removeCheque(index)} className="btn-icon" style={{ color: 'var(--danger)' }}>
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <div style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                            Total Cheques: ${payData.cheques.reduce((sum, c) => sum + Number(c.amount), 0).toLocaleString('es-AR')}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* New Cheque Form */}
+                                <div style={{ background: 'white', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px dashed var(--primary-soft)' }}>
+                                    <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem' }}>Nuevo Cheque</h5>
+                                    <div className="form-group"><input placeholder="Banco" className="form-input" value={newCheque.bank} onChange={e => setNewCheque({ ...newCheque, bank: e.target.value })} /></div>
+                                    <div className="form-group"><input placeholder="Número" className="form-input" value={newCheque.number} onChange={e => setNewCheque({ ...newCheque, number: e.target.value })} /></div>
+                                    <div className="form-group"><input type="number" placeholder="Monto" className="form-input" value={newCheque.amount} onChange={e => setNewCheque({ ...newCheque, amount: e.target.value })} /></div>
+                                    <div className="form-group"><label className="text-sm">Fecha Cobro</label><input type="date" className="form-input" value={newCheque.date} onChange={e => setNewCheque({ ...newCheque, date: e.target.value })} /></div>
+                                    <div className="form-group"><input placeholder="Destino (Opcional)" className="form-input" value={newCheque.destination} onChange={e => setNewCheque({ ...newCheque, destination: e.target.value })} /></div>
+                                    
+                                    <button type="button" onClick={addCheque} className="btn btn-secondary" style={{ width: '100%', marginTop: '0.5rem' }}>
+                                        <PlusCircle size={16} style={{ marginRight: '4px' }} /> Agregar Cheque
+                                    </button>
+                                </div>
                             </div>
                         )}
 
@@ -638,6 +748,7 @@ export default function ClientDetail() {
                                     <th style={{ textAlign: 'right' }}>Total</th>
                                     <th style={{ textAlign: 'right' }}>Kilos</th>
                                     <th style={{ textAlign: 'right', color: 'var(--success)' }}>Pagos</th>
+                                    <th style={{ textAlign: 'right', fontWeight: 'bold' }}>Saldo</th>
                                     <th style={{ width: '40px' }}></th>
                                 </tr>
                             </thead>
@@ -673,10 +784,39 @@ export default function ClientDetail() {
                                                     </div>
                                                 ) : (
                                                     <div>
-                                                        <div style={{ fontWeight: 500, color: 'var(--success)' }}>PAGO ({item.method})</div>
+                                                        <div style={{ fontWeight: 500, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                            PAGO ({item.method})
+                                                            {item.paymentType && (
+                                                                <span style={{
+                                                                    fontSize: '0.7em',
+                                                                    padding: '2px 6px',
+                                                                    borderRadius: '4px',
+                                                                    background: item.paymentType === 'BLANCO' ? '#e2e8f0' : '#475569',
+                                                                    color: item.paymentType === 'BLANCO' ? '#1e293b' : 'white',
+                                                                    fontWeight: 600
+                                                                }}>
+                                                                    {item.paymentType}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         {item.destination && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#666' }}>Destino: {item.destination}</div>}
                                                         {item.notes && <div style={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#888' }}>"{item.notes}"</div>}
-                                                        {item.method === 'CHEQUE' && <div className="text-muted text-sm">#{item.chequeNumber} - {item.chequeBank}</div>}
+                                                        {item.method === 'CHEQUE' && (
+                                                            <div className="text-muted text-sm">
+                                                                {item.cheques && item.cheques.length > 0 ? (
+                                                                    <div style={{ marginTop: '2px' }}>
+                                                                        <div style={{ fontWeight: 600 }}>Múltiples cheques ({item.cheques.length}):</div>
+                                                                        {item.cheques.map((c, idx) => (
+                                                                            <div key={idx} style={{ paddingLeft: '0.5rem', fontSize: '0.75rem' }}>
+                                                                                • {c.bank} #{c.number} (${Number(c.amount).toLocaleString('es-AR')})
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div>#{item.chequeNumber} - {item.chequeBank}</div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                         {item.method === 'TRANSFER' && <div className="text-muted text-sm">#{item.transferNumber} - {item.transferBank}</div>}
                                                     </div>
                                                 )}
@@ -697,6 +837,9 @@ export default function ClientDetail() {
                                             </td>
                                             <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: 500 }}>
                                                 {item.type === 'PAYMENT' ? `$${Number(item.amount).toLocaleString('es-AR')}` : '-'}
+                                            </td>
+                                            <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
+                                                ${item.balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                             </td>
                                             <td>
                                                 <div style={{ display: 'flex', gap: '4px' }}>
@@ -753,6 +896,7 @@ export default function ClientDetail() {
                                         <td style={{ textAlign: 'right', padding: '1rem 0.5rem', color: 'var(--success)' }}>
                                             ${history.reduce((sum, item) => sum + (item.type === 'PAYMENT' ? Number(item.amount) : 0), 0).toLocaleString('es-AR')}
                                         </td>
+                                        <td></td>
                                         <td></td>
                                     </tr>
                                 </tfoot>

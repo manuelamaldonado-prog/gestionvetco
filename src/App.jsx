@@ -9,6 +9,7 @@ import PracticeCatalog from './components/PracticeCatalog';
 import Reports from './components/Reports';
 import MonthlyStatement from './components/MonthlyStatement';
 import CustomStatement from './components/CustomStatement';
+import Agenda from './components/Agenda';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/clients" element={<ClientList />} />
             <Route path="/clients/:id" element={<ClientDetail />} />
+            <Route path="/agenda" element={<Agenda />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/statement/:clientId/:month" element={<MonthlyStatement />} />
             <Route path="/reports/custom-statement/:clientId/:fromDate/:toDate" element={<CustomStatement />} />

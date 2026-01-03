@@ -92,11 +92,67 @@ export default function Reports() {
     // --- Cheques Report Logic ---
     const chequesData = payments
         .filter(p => p.method === 'CHEQUE')
+        .flatMap(p => {
+            if (p.cheques && p.cheques.length > 0) {
+                // Expand multiple cheques
+                return p.cheques.map((c, idx) => ({
+                    ...p,
+                    amount: c.amount,
+                    chequeNumber: c.number,
+                    chequeBank: c.bank,
+                    chequeDate: c.date,
+                    destination: c.destination || p.destination,
+                    id: `${p.id}_${idx}` // Unique ID for list
+                }));
+            }
+            return [p]; // Legacy single cheque
+        })
         .map(p => ({
             ...p,
             clientName: clients.find(c => c.id === p.clientId)?.name || 'Desconocido'
         }))
         .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Group Cheques by Client
+    const chequesByClient = {};
+    chequesData.forEach(cheque => {
+        if (!chequesByClient[cheque.clientId]) {
+            chequesByClient[cheque.clientId] = {
+                id: cheque.clientId,
+                name: cheque.clientName,
+                items: [],
+                total: 0
+            };
+        }
+        chequesByClient[cheque.clientId].items.push(cheque);
+        chequesByClient[cheque.clientId].total += Number(cheque.amount);
+    });
+    const chequesGroupedList = Object.values(chequesByClient).sort((a, b) => a.name.localeCompare(b.name));
+
+    // --- Transfers Report Logic ---
+    const transfersData = payments
+        .filter(p => p.method === 'TRANSFER')
+        .map(p => ({
+            ...p,
+            clientName: clients.find(c => c.id === p.clientId)?.name || 'Desconocido'
+        }))
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Group Transfers by Client
+    const transfersByClient = {};
+    transfersData.forEach(t => {
+        if (!transfersByClient[t.clientId]) {
+            transfersByClient[t.clientId] = {
+                id: t.clientId,
+                name: t.clientName,
+                items: [],
+                total: 0
+            };
+        }
+        transfersByClient[t.clientId].items.push(t);
+        transfersByClient[t.clientId].total += Number(t.amount);
+    });
+    const transfersGroupedList = Object.values(transfersByClient).sort((a, b) => a.name.localeCompare(b.name));
 
     // --- Annual History Logic ---
     const last12Months = [];
@@ -407,6 +463,45 @@ export default function Reports() {
                         <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total en Cheques</div>
                         <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalCheques.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
                     </div>
+
+                    {chequesGroupedList.map(group => (
+                        <div key={group.id} className="card" style={{ marginBottom: '1.5rem', padding: 0, overflow: 'hidden' }}>
+                            <div style={{ padding: '1rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--surface-hover)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{group.name}</h3>
+                                <div style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
+                                    Total: ${group.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </div>
+                            </div>
+                            <div className="table-wrapper">
+                                <table style={{ fontSize: '0.875rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Descripción</th>
+                                            <th>Banco</th>
+                                            <th>Nº Cheque</th>
+                                            <th>Destino</th>
+                                            <th style={{ textAlign: 'right' }}>Monto</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {group.items.map(item => (
+                                            <tr key={item.id}>
+                                                <td>{item.date.split('-').reverse().join('/')}</td>
+                                                <td>{item.notes || '-'}</td>
+                                                <td>{item.chequeBank || '-'}</td>
+                                                <td>{item.chequeNumber || '-'}</td>
+                                                <td>{item.destination || '-'}</td>
+                                                <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                                                    ${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
                 </>
             )}
 
@@ -425,6 +520,45 @@ export default function Reports() {
                         <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total Transferencias</div>
                         <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalTransfer.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
                     </div>
+
+                    {transfersGroupedList.map(group => (
+                        <div key={group.id} className="card" style={{ marginBottom: '1.5rem', padding: 0, overflow: 'hidden' }}>
+                            <div style={{ padding: '1rem', background: 'var(--surface-hover)', borderBottom: '1px solid var(--surface-hover)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{group.name}</h3>
+                                <div style={{ fontWeight: 'bold', color: 'var(--primary)' }}>
+                                    Total: ${group.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </div>
+                            </div>
+                            <div className="table-wrapper">
+                                <table style={{ fontSize: '0.875rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Fecha</th>
+                                            <th>Descripción</th>
+                                            <th>Banco / Plataforma</th>
+                                            <th>Referencia</th>
+                                            <th>Destino</th>
+                                            <th style={{ textAlign: 'right' }}>Monto</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {group.items.map(item => (
+                                            <tr key={item.id}>
+                                                <td>{item.date.split('-').reverse().join('/')}</td>
+                                                <td>{item.notes || '-'}</td>
+                                                <td>{item.transferBank || '-'}</td>
+                                                <td>{item.transferNumber || '-'}</td>
+                                                <td>{item.destination || '-'}</td>
+                                                <td style={{ textAlign: 'right', fontWeight: 500 }}>
+                                                    ${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
                 </>
             )}
 

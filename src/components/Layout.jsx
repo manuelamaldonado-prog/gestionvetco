@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, FileText, Settings, PlusCircle, CreditCard, Download } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Settings, PlusCircle, CreditCard, Download, Calendar } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import React from 'react';
 
@@ -107,6 +107,7 @@ export default function Layout({ children }) {
 
     const navItems = [
         { to: '/', icon: LayoutDashboard, label: 'Inicio' },
+        { to: '/agenda', icon: Calendar, label: 'Agenda' },
         { to: '/clients', icon: Users, label: 'Clientes' },
         { to: '/reports', icon: FileText, label: 'Informes' },
         { to: '/catalog', icon: Settings, label: 'Config' },

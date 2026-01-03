@@ -10,6 +10,7 @@ const INITIAL_STATE = {
   practices: [],
   jobs: [],
   payments: [],
+  agendaEvents: [],
   businessInfo: {
     name: 'ALEJANDRO MALDONADO',
     cuit: '23176125489',
@@ -48,6 +49,7 @@ export function DataProvider({ children }) {
         practices: Array.isArray(parsed.practices) ? parsed.practices : [],
         jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
         payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+        agendaEvents: Array.isArray(parsed.agendaEvents) ? parsed.agendaEvents : [],
         businessInfo: normalizedBI
       };
       return { ...INITIAL_STATE, ...normalized };
@@ -125,7 +127,7 @@ export function DataProvider({ children }) {
 
   // Payments
   const addPayment = (payment) => {
-    // payment needs: clientId, amount, method, date, extraDetails
+    // payment needs: clientId, amount, method, date, extraDetails, paymentType (BLANCO/OTRO)
     setData(prev => ({
       ...prev,
       payments: [...prev.payments, { ...payment, id: uuidv4(), createdAt: new Date().toISOString() }]
@@ -136,6 +138,28 @@ export function DataProvider({ children }) {
     setData(prev => ({
       ...prev,
       payments: prev.payments.filter(p => p.id !== id)
+    }));
+  };
+
+  // Agenda Events
+  const addAgendaEvent = (event) => {
+    setData(prev => ({
+      ...prev,
+      agendaEvents: [...prev.agendaEvents, { ...event, id: uuidv4(), createdAt: new Date().toISOString() }]
+    }));
+  };
+
+  const updateAgendaEvent = (id, updates) => {
+    setData(prev => ({
+      ...prev,
+      agendaEvents: prev.agendaEvents.map(e => e.id === id ? { ...e, ...updates } : e)
+    }));
+  };
+
+  const deleteAgendaEvent = (id) => {
+    setData(prev => ({
+      ...prev,
+      agendaEvents: prev.agendaEvents.filter(e => e.id !== id)
     }));
   };
 
@@ -167,7 +191,14 @@ export function DataProvider({ children }) {
     const jobs = data.jobs.filter(j => j.clientId === clientId).map(j => ({ ...j, type: 'JOB' }));
     const payments = data.payments.filter(p => p.clientId === clientId).map(p => ({ ...p, type: 'PAYMENT' }));
 
-    return [...jobs, ...payments].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return [...jobs, ...payments].sort((a, b) => {
+      const dateDiff = new Date(b.date) - new Date(a.date);
+      if (dateDiff !== 0) return dateDiff;
+      // If dates are equal, sort by creation time (newest first)
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createdB - createdA;
+    });
   };
 
   const updateJob = (id, updates) => {
@@ -235,6 +266,7 @@ export function DataProvider({ children }) {
         practices: Array.isArray(parsed.practices) ? parsed.practices : [],
         jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
         payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+        agendaEvents: Array.isArray(parsed.agendaEvents) ? parsed.agendaEvents : [],
         businessInfo: normalizedBI
       };
       setData({ ...INITIAL_STATE, ...normalized });
@@ -263,6 +295,10 @@ export function DataProvider({ children }) {
       addPayment,
       updatePayment,
       deletePayment,
+      agendaEvents: data.agendaEvents,
+      addAgendaEvent,
+      updateAgendaEvent,
+      deleteAgendaEvent,
       getIvaRateForClient,
       getClientBalance,
       getClientHistory,
