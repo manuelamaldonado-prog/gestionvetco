@@ -5,16 +5,17 @@ const DataContext = createContext();
 
 const STORAGE_KEY = 'CLIENT_JOB_MANAGER_DATA_V1';
 
-const INITIAL_STATE = {
-  clients: [],
-  practices: [],
-  jobs: [],
-  payments: [],
-  agendaEvents: [],
-  businessInfo: {
-    name: 'ALEJANDRO MALDONADO',
-    cuit: '23176125489',
-    bank: 'BANCO ICBC',
+  const INITIAL_STATE = {
+    clients: [],
+    practices: [],
+    jobs: [],
+    payments: [],
+    adjustments: [],
+    agendaEvents: [],
+    businessInfo: {
+      name: 'ALEJANDRO MALDONADO',
+      cuit: '23176125489',
+      bank: 'BANCO ICBC',
     accountNumber: 'CA$ 0840/01111950/74',
     cbu: '0150840401000111950743',
     alias: 'ALE.VET.SGO',
@@ -176,22 +177,49 @@ export function DataProvider({ children }) {
   };
 
   const getClientBalance = (clientId) => {
-    const clientJobs = data.jobs.filter(j => j.clientId === clientId);
-    const clientPayments = data.payments.filter(p => p.clientId === clientId);
-
-    // Sum totals safely (Applying 21% IVA to all Jobs)
     const ivaRate = getIvaRateForClient(clientId);
-    const totalJobs = clientJobs.reduce((acc, job) => acc + (Number(job.total) * (1 + ivaRate)), 0);
-    const totalPayments = clientPayments.reduce((acc, pay) => acc + (Number(pay.amount) || 0), 0);
-
-    return totalJobs - totalPayments;
+    const historyAsc = getClientHistory(clientId).slice().reverse(); // oldest first
+    let net = 0;
+    let iva = 0;
+    historyAsc.forEach(item => {
+      if (item.type === 'JOB') {
+        const jNet = Number(item.total);
+        net += jNet;
+        iva += (jNet * ivaRate);
+      } else if (item.type === 'PAYMENT') {
+        const amount = Number(item.amount) || 0;
+        const type = item.paymentType || 'BLANCO';
+        if (type === 'BLANCO') {
+          const netPart = amount * 0.79;
+          const ivaPart = amount * 0.21;
+          net -= netPart;
+          iva -= ivaPart;
+        } else {
+          net -= amount;
+        }
+      } else if (item.type === 'ADJUSTMENT') {
+        if (item.operationType === 'IVA_COMP') {
+          const comp = Number(item.amount) || 0;
+          iva -= comp;
+        } else if (item.operationType === 'DISCOUNT') {
+          let pct = Number(item.percentage) || 0;
+          if (pct > 1) pct = pct / 100;
+          const dNet = net * pct;
+          const dIva = iva * pct;
+          net -= dNet;
+          iva -= dIva;
+        }
+      }
+    });
+    return { net, iva, total: net + iva };
   };
 
   const getClientHistory = (clientId) => {
     const jobs = data.jobs.filter(j => j.clientId === clientId).map(j => ({ ...j, type: 'JOB' }));
     const payments = data.payments.filter(p => p.clientId === clientId).map(p => ({ ...p, type: 'PAYMENT' }));
+    const adjustments = data.adjustments.filter(a => a.clientId === clientId).map(a => ({ ...a, type: 'ADJUSTMENT' }));
 
-    return [...jobs, ...payments].sort((a, b) => {
+    return [...jobs, ...payments, ...adjustments].sort((a, b) => {
       const dateDiff = new Date(b.date) - new Date(a.date);
       if (dateDiff !== 0) return dateDiff;
       // If dates are equal, sort by creation time (newest first)
@@ -227,6 +255,27 @@ export function DataProvider({ children }) {
     setData(prev => ({
       ...prev,
       payments: prev.payments.map(p => p.id === id ? { ...p, ...updates } : p)
+    }));
+  };
+ 
+  const addAdjustment = (adjustment) => {
+    setData(prev => ({
+      ...prev,
+      adjustments: [...prev.adjustments, { ...adjustment, id: uuidv4(), createdAt: new Date().toISOString() }]
+    }));
+  };
+ 
+  const updateAdjustment = (id, updates) => {
+    setData(prev => ({
+      ...prev,
+      adjustments: prev.adjustments.map(a => a.id === id ? { ...a, ...updates } : a)
+    }));
+  };
+ 
+  const deleteAdjustment = (id) => {
+    setData(prev => ({
+      ...prev,
+      adjustments: prev.adjustments.filter(a => a.id !== id)
     }));
   };
 
@@ -266,6 +315,7 @@ export function DataProvider({ children }) {
         practices: Array.isArray(parsed.practices) ? parsed.practices : [],
         jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
         payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+        adjustments: Array.isArray(parsed.adjustments) ? parsed.adjustments : [],
         agendaEvents: Array.isArray(parsed.agendaEvents) ? parsed.agendaEvents : [],
         businessInfo: normalizedBI
       };
@@ -283,6 +333,7 @@ export function DataProvider({ children }) {
       practices: data.practices,
       jobs: data.jobs,
       payments: data.payments,
+      adjustments: data.adjustments,
       addClient,
       updateClient,
       deleteClient,
@@ -295,6 +346,9 @@ export function DataProvider({ children }) {
       addPayment,
       updatePayment,
       deletePayment,
+      addAdjustment,
+      updateAdjustment,
+      deleteAdjustment,
       agendaEvents: data.agendaEvents,
       addAgendaEvent,
       updateAgendaEvent,

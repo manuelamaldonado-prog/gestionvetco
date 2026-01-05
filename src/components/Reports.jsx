@@ -85,9 +85,10 @@ export default function Reports() {
     const globalBalances = clients.map(c => ({
         ...c,
         balance: getClientBalance(c.id)
-    })).sort((a, b) => b.balance - a.balance); // Highest debt first
+    })).sort((a, b) => b.balance.total - a.balance.total); // Highest debt first
 
-    const totalGlobalDebt = globalBalances.reduce((sum, c) => sum + c.balance, 0);
+    const totalGlobalDebt = globalBalances.reduce((sum, c) => sum + c.balance.total, 0);
+    const totalGlobalNetDebt = globalBalances.reduce((sum, c) => sum + c.balance.net, 0);
 
     // --- Cheques Report Logic ---
     const chequesData = payments
@@ -342,7 +343,8 @@ export default function Reports() {
                                         <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>IVA</th>
                                         <th style={{ textAlign: 'right', color: 'var(--text-main)' }}>Total</th>
                                         <th style={{ textAlign: 'right', color: 'var(--success)' }}>Pagos</th>
-                                        <th style={{ textAlign: 'right', color: 'var(--primary)' }}>Saldo Actual</th>
+                                        <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>Saldo Neto</th>
+                                        <th style={{ textAlign: 'right', color: 'var(--primary)' }}>Saldo Total</th>
                                         <th style={{ width: '40px' }}></th>
                                     </tr>
                                 </thead>
@@ -408,8 +410,11 @@ export default function Reports() {
                                                 <td style={{ textAlign: 'right', fontWeight: 500, color: 'var(--success)', verticalAlign: 'top' }}>
                                                     {item.paymentTotal > 0 ? `$${item.paymentTotal.toLocaleString('es-AR')}` : '-'}
                                                 </td>
-                                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: item.currentBalance > 0 ? 'var(--danger)' : 'var(--text-main)', verticalAlign: 'top' }}>
-                                                    ${item.currentBalance.toLocaleString('es-AR')}
+                                                <td style={{ textAlign: 'right', color: 'var(--text-secondary)', verticalAlign: 'top' }}>
+                                                    ${item.currentBalance.net.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
+                                                </td>
+                                                <td style={{ textAlign: 'right', fontWeight: 'bold', color: item.currentBalance.total > 0 ? 'var(--danger)' : 'var(--text-main)', verticalAlign: 'top' }}>
+                                                    ${item.currentBalance.total.toLocaleString('es-AR')}
                                                 </td>
                                                 <td style={{ verticalAlign: 'top' }}>
                                                     <Link
@@ -441,7 +446,7 @@ export default function Reports() {
                                             <td style={{ textAlign: 'right', padding: '1rem 0.5rem', color: 'var(--success)' }}>
                                                 ${totalMonthPaid.toLocaleString('es-AR')}
                                             </td>
-                                            <td colSpan="2"></td>
+                                            <td colSpan="3"></td>
                                         </tr>
                                     </tfoot>
                                 )}
@@ -648,9 +653,15 @@ export default function Reports() {
 
             {viewMode === 'global' && (
                 <>
-                    <div className="card" style={{ background: 'var(--danger)', color: 'white', marginBottom: '1.5rem' }}>
-                        <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total a Cobrar (Deuda General)</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalGlobalDebt.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div className="card" style={{ background: 'var(--text-secondary)', color: 'white', marginBottom: '0' }}>
+                            <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total Neto a Cobrar</div>
+                            <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalGlobalNetDebt.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                        </div>
+                        <div className="card" style={{ background: 'var(--danger)', color: 'white', marginBottom: '0' }}>
+                            <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total a Cobrar (Deuda General)</div>
+                            <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalGlobalDebt.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                        </div>
                     </div>
 
                     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -660,30 +671,25 @@ export default function Reports() {
                                     <tr>
                                         <th>Cliente</th>
                                         <th>Teléfono</th>
-                                        <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>Neto Est.</th>
-                                        <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>IVA Est.</th>
+                                        <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>Saldo Neto</th>
+                                        <th style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>Saldo IVA</th>
                                         <th style={{ textAlign: 'right' }}>Saldo Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {globalBalances.map(c => {
-                                         // Estimate Net and IVA from Balance (assuming 21% IVA on unpaid debt)
-                                         const ivaRate = getIvaRateForClient(c.id);
-                                         const estimatedNet = c.balance / (1 + ivaRate);
-                                         const estimatedIVA = c.balance - estimatedNet;
- 
-                                         return (
-                                             <tr key={c.id}>
-                                                 <td style={{ fontWeight: 500 }}>{c.name}</td>
-                                                 <td className="text-muted text-sm">{c.phone || '-'}</td>
+                                        return (
+                                            <tr key={c.id}>
+                                                <td style={{ fontWeight: 500 }}>{c.name}</td>
+                                                <td className="text-muted text-sm">{c.phone || '-'}</td>
                                                 <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
-                                                    ${estimatedNet.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    ${c.balance.net.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
-                                                    ${estimatedIVA.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    ${c.balance.iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '1.1rem', color: c.balance > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                                                    ${c.balance.toLocaleString('es-AR')}
+                                                <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '1.1rem', color: c.balance.total > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                                                    ${c.balance.total.toLocaleString('es-AR')}
                                                 </td>
                                             </tr>
                                         );

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 export default function CustomStatement() {
     const { clientId, fromDate, toDate } = useParams();
     const navigate = useNavigate();
-    const { clients, jobs, payments, practices, businessInfo, getIvaRateForClient } = useData();
+    const { clients, jobs, payments, adjustments, practices, businessInfo, getIvaRateForClient } = useData();
 
     const [client, setClient] = useState(null);
 
@@ -31,6 +31,7 @@ export default function CustomStatement() {
     // Filter Data
     const previousJobs = jobs.filter(j => j.clientId === clientId && j.date < fromDate);
     const previousPayments = payments.filter(p => p.clientId === clientId && p.date < fromDate);
+    const previousAdjustments = adjustments.filter(a => a.clientId === clientId && a.date < fromDate);
 
     const currentJobs = jobs.filter(j => j.clientId === clientId && j.date >= fromDate && j.date <= toDate)
         .sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -42,21 +43,54 @@ export default function CustomStatement() {
     // Let's mix them for a better "History" feel in a custom range.
     const movements = [
         ...currentJobs.map(j => ({ ...j, type: 'JOB', sortDate: new Date(j.date) })),
-        ...currentPayments.map(p => ({ ...p, type: 'PAYMENT', sortDate: new Date(p.date) }))
+        ...currentPayments.map(p => ({ ...p, type: 'PAYMENT', sortDate: new Date(p.date) })),
+        ...adjustments.filter(a => a.clientId === clientId && a.date >= fromDate && a.date <= toDate)
+            .map(a => ({ ...a, type: 'ADJUSTMENT', sortDate: new Date(a.date) }))
     ].sort((a, b) => a.sortDate - b.sortDate);
 
     // Calculations
-    const prevJobTotal = previousJobs.reduce((acc, j) => acc + (Number(j.total) * (1 + ivaRate)), 0);
-    const prevPayTotal = previousPayments.reduce((acc, p) => acc + Number(p.amount), 0);
-    const previousBalance = prevJobTotal - prevPayTotal;
+    const calculatePeriodBalance = (jobsList, paymentsList, adjustmentsList, rate) => {
+        let net = 0;
+        let iva = 0;
+        jobsList.forEach(j => {
+            const jNet = Number(j.total);
+            net += jNet;
+            iva += (jNet * rate);
+        });
+        paymentsList.forEach(p => {
+            const amount = Number(p.amount) || 0;
+            const type = p.paymentType || 'BLANCO';
+            if (type === 'BLANCO') {
+                const netPart = amount * 0.79;
+                const ivaPart = amount * 0.21;
+                net -= netPart;
+                iva -= ivaPart;
+            } else {
+                net -= amount;
+            }
+        });
+        adjustmentsList.forEach(a => {
+            if (a.operationType === 'IVA_COMP') {
+                iva -= (Number(a.amount) || 0);
+            } else if (a.operationType === 'DISCOUNT') {
+                let pct = Number(a.percentage) || 0;
+                if (pct > 1) pct = pct / 100;
+                const dNet = net * pct;
+                const dIva = iva * pct;
+                net -= dNet;
+                iva -= dIva;
+            }
+        });
+        return { net, iva, total: net + iva };
+    };
+
+    const previousBalance = calculatePeriodBalance(previousJobs, previousPayments, previousAdjustments, ivaRate);
 
     const currentJobTotal = currentJobs.reduce((acc, j) => acc + (Number(j.total) * (1 + ivaRate)), 0);
     const currentPayTotal = currentPayments.reduce((acc, p) => acc + Number(p.amount), 0);
 
-    const finalBalance = previousBalance + currentJobTotal - currentPayTotal;
+    const finalBalance = calculatePeriodBalance([...previousJobs, ...currentJobs], [...previousPayments, ...currentPayments], previousAdjustments.concat(adjustments.filter(a => a.clientId === clientId && a.date >= fromDate && a.date <= toDate)), ivaRate);
 
-    const estimatedNet = finalBalance / (1 + ivaRate);
-    const estimatedIVA = finalBalance - estimatedNet;
     const totalKilos = currentJobs.reduce((sum, j) => {
         if (j.convertToKilos && Number(businessInfo?.inmag) > 0) {
             return sum + (Number(j.total) / Number(businessInfo.inmag));
@@ -120,8 +154,12 @@ export default function CustomStatement() {
                 <table style={{ width: 'auto', border: '1px solid #ddd' }}>
                     <tbody>
                         <tr>
-                            <th style={{ padding: '0.5rem 1rem', background: '#f9f9f9', textAlign: 'right' }}>Saldo Anterior:</th>
-                            <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>${previousBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <th style={{ padding: '0.5rem 1rem', background: '#f9f9f9', textAlign: 'right', color: 'var(--text-secondary)' }}>Saldo Anterior Neto:</th>
+                            <td style={{ padding: '0.5rem 1rem', textAlign: 'right', color: 'var(--text-secondary)' }}>${previousBalance.net.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                            <th style={{ padding: '0.5rem 1rem', background: '#f9f9f9', textAlign: 'right' }}>Saldo Anterior Total:</th>
+                            <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontWeight: 'bold' }}>${previousBalance.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -167,8 +205,12 @@ export default function CustomStatement() {
                                                 </div>
                                             )}
                                         </>
+                                    ) : item.type === 'PAYMENT' ? (
+                                        `PAGO ${item.paymentType === 'OTRO' ? '(NEGRO)' : '(BLANCO)'} - ${item.method}`
                                     ) : (
-                                        `PAGO (${item.method})`
+                                        item.operationType === 'IVA_COMP'
+                                            ? `AJUSTE ADMINISTRATIVO: Compensación IVA`
+                                            : `AJUSTE COMERCIAL: Descuento ${Number(item.percentage) > 1 ? Number(item.percentage) + '%' : (Number(item.percentage) * 100).toFixed(0) + '%'}`
                                     )}
                                 </td>
                                 <td style={{ padding: '0.5rem', textAlign: 'center' }}>
@@ -178,7 +220,7 @@ export default function CustomStatement() {
                                     {item.type === 'JOB' ? `$${Number(item.total).toLocaleString('es-AR')}` : '-'}
                                 </td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right', color: '#666' }}>
-                                    {item.type === 'JOB' ? `$${(Number(item.total) * ivaRate).toLocaleString('es-AR')}` : '-'}
+                                    {item.type === 'JOB' ? `$${(Number(item.total) * ivaRate).toLocaleString('es-AR')}` : (item.type === 'ADJUSTMENT' && item.operationType === 'IVA_COMP') ? `-$${Number(item.amount).toLocaleString('es-AR')}` : '-'}
                                 </td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>
                                     {item.type === 'JOB' ? `$${(Number(item.total) * (1 + ivaRate)).toLocaleString('es-AR')}` : '-'}
@@ -218,13 +260,17 @@ export default function CustomStatement() {
             </div>
 
             {/* Final Balance */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '2rem', gap: '1rem' }}>
+                <div style={{ background: '#f5f5f5', color: 'var(--text-main)', padding: '1rem 2rem', borderRadius: '4px', border: '1px solid #ddd' }}>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.8 }}>Saldo Final Neto</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>${finalBalance.net.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                </div>
                 <div style={{ background: '#000', color: '#fff', padding: '1rem 2rem', borderRadius: '4px' }}>
-                    <div style={{ fontSize: '0.875rem', opacity: 0.8 }}>Saldo Final a la Fecha</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>${finalBalance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.8 }}>Saldo Final Total</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>${finalBalance.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
                     {(Number(businessInfo?.inmag) > 0) && (
                         <div style={{ marginTop: '0.25rem', fontSize: '0.95rem', opacity: 0.9 }}>
-                            ≈ {(finalBalance / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg novillo (INMAG ${Number(businessInfo.inmag).toLocaleString('es-AR')})
+                            ≈ {(finalBalance.total / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg novillo (INMAG ${Number(businessInfo.inmag).toLocaleString('es-AR')})
                         </div>
                     )}
                 </div>

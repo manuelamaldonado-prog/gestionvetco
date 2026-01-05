@@ -16,24 +16,54 @@ export default function ClientDetail() {
     // rawHistory is DESC (Newest First). Reverse to get Oldest First for calculation.
     const ascHistory = [...rawHistory].reverse();
     
-    let runningBalance = 0;
+    let runningNet = 0;
+    let runningIVA = 0;
+
     const historyWithBalance = ascHistory.map(item => {
+        let balanceNet = 0;
+        let balanceIVA = 0;
+        let balanceTotal = 0;
+
         if (item.type === 'JOB') {
-            const amount = Number(item.total) * (1 + ivaRate);
-            runningBalance += amount;
-        } else {
-            const amount = Number(item.amount);
-            runningBalance -= amount;
+            const net = Number(item.total);
+            runningNet += net;
+            runningIVA += (net * ivaRate);
+        } else if (item.type === 'PAYMENT') {
+            const amount = Number(item.amount) || 0;
+            const type = item.paymentType || 'BLANCO';
+            if (type === 'BLANCO') {
+                const netPart = amount * 0.79;
+                const ivaPart = amount * 0.21;
+                runningNet -= netPart;
+                runningIVA -= ivaPart;
+            } else {
+                runningNet -= amount;
+            }
+        } else if (item.type === 'ADJUSTMENT') {
+            if (item.operationType === 'IVA_COMP') {
+                const comp = Number(item.amount) || 0;
+                runningIVA -= comp;
+            } else if (item.operationType === 'DISCOUNT') {
+                let pct = Number(item.percentage) || 0;
+                if (pct > 1) pct = pct / 100;
+                const dNet = runningNet * pct;
+                const dIva = runningIVA * pct;
+                runningNet -= dNet;
+                runningIVA -= dIva;
+            }
         }
-        return { ...item, balance: runningBalance };
+        
+        balanceNet = runningNet;
+        balanceIVA = runningIVA;
+        balanceTotal = runningNet + runningIVA;
+
+        return { ...item, balanceNet, balanceIVA, balanceTotal };
     });
     
     const history = historyWithBalance.reverse(); // Back to DESC for display
     
     const balance = getClientBalance(id);
-
-    const estimatedNet = balance / (1 + ivaRate);
-    const estimatedIVA = balance - estimatedNet;
+    // balance is now { net, iva, total }
 
     const [activeTab, setActiveTab] = useState('history'); // history, new_job, new_payment, edit_job, report
 
@@ -339,19 +369,19 @@ export default function ClientDetail() {
             }}>
                 <div style={{ position: 'relative', zIndex: 1 }}>
                     <div style={{ fontSize: '0.9rem', fontWeight: '600', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-                        Saldo Pendiente
+                        Saldo Total (Neto + IVA)
                     </div>
                     <div style={{ fontSize: '2.55rem', fontWeight: '800', fontFamily: 'Outfit, sans-serif' }}>
-                        ${balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        ${balance.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </div>
                     
                     <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.5rem', marginBottom: '1rem', fontSize: '0.95rem', opacity: 0.95 }}>
-                        <span>Neto: <strong>${estimatedNet.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                        <span style={{ borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '1.5rem' }}>IVA {ivaRate === 0 ? '(EXENTO)' : '(21%)'}: <strong>${estimatedIVA.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                        <span>Neto: <strong>${balance.net.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                        <span style={{ borderLeft: '1px solid rgba(255,255,255,0.3)', paddingLeft: '1.5rem' }}>IVA {ivaRate === 0 ? '(EXENTO)' : '(21%)'}: <strong>${balance.iva.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
                     </div>
                     {Number(businessInfo?.inmag) > 0 && (
                         <div style={{ marginTop: '0.25rem', fontSize: '0.95rem', opacity: 0.95 }}>
-                            ≈ {(balance / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg novillo (INMAG ${Number(businessInfo.inmag).toLocaleString('es-AR')})
+                            ≈ {(balance.total / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg novillo (INMAG ${Number(businessInfo.inmag).toLocaleString('es-AR')})
                         </div>
                     )}
 
@@ -839,7 +869,10 @@ export default function ClientDetail() {
                                                 {item.type === 'PAYMENT' ? `$${Number(item.amount).toLocaleString('es-AR')}` : '-'}
                                             </td>
                                             <td style={{ textAlign: 'right', fontWeight: 'bold', color: 'var(--primary)' }}>
-                                                ${item.balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                <div>${item.balanceTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                                                <div style={{ fontSize: '0.7em', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                                                    Neto: ${item.balanceNet.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
+                                                </div>
                                             </td>
                                             <td>
                                                 <div style={{ display: 'flex', gap: '4px' }}>

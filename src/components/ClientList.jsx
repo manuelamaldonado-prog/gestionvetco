@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Plus, User, Phone, Search, ChevronRight } from 'lucide-react';
 
 export default function ClientList() {
-    const { clients, addClient } = useData();
+    const { clients, addClient, getClientBalance } = useData();
     const [showForm, setShowForm] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [formData, setFormData] = useState({
@@ -143,33 +143,46 @@ export default function ClientList() {
                 {filteredClients.length === 0 ? (
                     <p className="text-muted" style={{ textAlign: 'center', margin: '2rem 0' }}>No se encontraron clientes.</p>
                 ) : (
-                    filteredClients.map(client => (
-                        <Link
-                            to={`/clients/${client.id}`}
-                            key={client.id}
-                            className="card"
-                            style={{
-                                textDecoration: 'none',
-                                color: 'inherit',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '1.25rem',
-                                margin: 0,
-                                // hover effect
-                                cursor: 'pointer'
-                            }}
-                        >
-                            <div>
-                                <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '0.25rem' }}>{client.name}</h3>
-                                <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                                    {client.cuit && <span>CUIT: {client.cuit}</span>}
-                                    {client.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={14} /> {client.phone}</span>}
+                    filteredClients.map(client => {
+                        const balance = getClientBalance(client.id);
+                        // balance is { net, iva, total }
+                        return (
+                            <Link
+                                to={`/clients/${client.id}`}
+                                key={client.id}
+                                className="card"
+                                style={{
+                                    textDecoration: 'none',
+                                    color: 'inherit',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '1.25rem',
+                                    margin: 0,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '0.25rem' }}>{client.name}</h3>
+                                    <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                                        {client.cuit && <span>CUIT: {client.cuit}</span>}
+                                        {client.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={14} /> {client.phone}</span>}
+                                    </div>
                                 </div>
-                            </div>
-                            <ChevronRight color="var(--text-secondary)" />
-                        </Link>
-                    ))
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: 'var(--primary)' }}>
+                                            ${balance.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </div>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                            Neto: ${balance.net.toLocaleString('es-AR', { minimumFractionDigits: 0 })}
+                                        </div>
+                                    </div>
+                                    <ChevronRight color="var(--text-secondary)" />
+                                </div>
+                            </Link>
+                        );
+                    })
                 )}
             </div>
         </div>
