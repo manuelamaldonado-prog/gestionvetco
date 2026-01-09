@@ -379,6 +379,7 @@ export default function ClientDetail() {
                                     onChange={e => setClientForm({ ...clientForm, province: e.target.value })}
                                 />
                             </div>
+                            </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 <input
@@ -1040,7 +1041,7 @@ export default function ClientDetail() {
                                     <th style={{ textAlign: 'right' }}>Neto</th>
                                     <th style={{ textAlign: 'right' }}>IVA {ivaRate === 0 ? '(EXENTO)' : '(21%)'}</th>
                                     <th style={{ textAlign: 'right' }}>Total</th>
-                                    <th style={{ textAlign: 'right' }}>Kilos</th>
+                                    {(client.convertToKilos) && <th style={{ textAlign: 'right' }}>Kilos</th>}
                                     <th style={{ textAlign: 'right', color: 'var(--success)' }}>Pagos</th>
                                     <th style={{ textAlign: 'right', fontWeight: 'bold' }}>Saldo</th>
                                     <th style={{ width: '40px' }}></th>
@@ -1048,7 +1049,7 @@ export default function ClientDetail() {
                             </thead>
                             <tbody>
                                 {history.length === 0 ? (
-                                    <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>Sin movimientos</td></tr>
+                                    <tr><td colSpan={client.convertToKilos ? 9 : 8} style={{ textAlign: 'center', padding: '2rem' }}>Sin movimientos</td></tr>
                                 ) : (
                                     history
                                         .sort((a, b) => new Date(a.date) - new Date(b.date))
@@ -1133,11 +1134,13 @@ export default function ClientDetail() {
                                             <td style={{ textAlign: 'right', fontWeight: 500 }}>
                                                 {item.type === 'JOB' ? `$${(Number(item.total) * (1 + ivaRate)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                             </td>
-                                            <td style={{ textAlign: 'right' }}>
-                                                {(item.type === 'JOB' && item.convertToKilos && Number(businessInfo?.inmag) > 0)
-                                                    ? (Number(item.total) / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                                    : '-'}
-                                            </td>
+                                            {(client.convertToKilos) && (
+                                                <td style={{ textAlign: 'right' }}>
+                                                    {(item.type === 'JOB' && (client.convertToKilos || item.convertToKilos) && Number(businessInfo?.inmag) > 0)
+                                                        ? (Number(item.total) / Number(businessInfo.inmag)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                        : '-'}
+                                                </td>
+                                            )}
                                             <td style={{ textAlign: 'right', color: 'var(--success)', fontWeight: 500 }}>
                                                 {item.type === 'PAYMENT' ? `$${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                             </td>
@@ -1267,41 +1270,43 @@ export default function ClientDetail() {
                                     <div>
                                         <h3 style={{ margin: 0 }}>{client.name}</h3>
                                         <div className="text-secondary text-sm">IVA: {client.ivaCondition || '-'}</div>
-                                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                            {(() => {
-                                                const addMonths = (iso, m) => {
-                                                    if (!iso) return '';
-                                                    const d = new Date(iso);
-                                                    return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()).toLocaleDateString('en-CA');
-                                                };
-                                                const formatDMY = (iso) => {
-                                                    if (!iso) return '-';
-                                                    const [y, mm, dd] = iso.split('-');
-                                                    return `${dd}/${mm}/${y}`;
-                                                };
-                                                const statusFor = (expIso) => {
-                                                    if (!expIso) return { label: '-', color: '#64748b', bg: '#f1f5f9' };
-                                                    const t = new Date(new Date().toLocaleDateString('en-CA'));
-                                                    const e = new Date(expIso);
-                                                    const diffDays = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
-                                                    if (diffDays < 0) return { label: 'Vencido', color: 'var(--danger)', bg: 'var(--danger-soft)' };
-                                                    if (diffDays <= 30) return { label: 'Por vencer', color: 'var(--warning)', bg: 'var(--warning-soft)' };
-                                                    return { label: 'Vigente', color: 'var(--success)', bg: 'var(--success-soft)' };
-                                                };
-                                                const acta = client?.sanitary?.brucelosis?.actaDate || '';
-                                                const proto = client?.sanitary?.tuberculosis?.protocoloDate || '';
-                                                const expB = addMonths(acta, 12);
-                                                const expT = addMonths(proto, 12);
-                                                const sB = statusFor(expB);
-                                                const sT = statusFor(expT);
-                                                return (
-                                                    <>
-                                                        <span className="badge" style={{ background: sB.bg, color: sB.color }}>Brucelosis: {formatDMY(expB)} · {sB.label}</span>
-                                                        <span className="badge" style={{ background: sT.bg, color: sT.color }}>Tuberculosis: {formatDMY(expT)} · {sT.label}</span>
-                                                    </>
-                                                );
-                                            })()}
-                                        </div>
+                                        {(client.showSanitary !== false) && (
+                                            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                                {(() => {
+                                                    const addMonths = (iso, m) => {
+                                                        if (!iso) return '';
+                                                        const d = new Date(iso);
+                                                        return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()).toLocaleDateString('en-CA');
+                                                    };
+                                                    const formatDMY = (iso) => {
+                                                        if (!iso) return '-';
+                                                        const [y, mm, dd] = iso.split('-');
+                                                        return `${dd}/${mm}/${y}`;
+                                                    };
+                                                    const statusFor = (expIso) => {
+                                                        if (!expIso) return { label: '-', color: '#64748b', bg: '#f1f5f9' };
+                                                        const t = new Date(new Date().toLocaleDateString('en-CA'));
+                                                        const e = new Date(expIso);
+                                                        const diffDays = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
+                                                        if (diffDays < 0) return { label: 'Vencido', color: 'var(--danger)', bg: 'var(--danger-soft)' };
+                                                        if (diffDays <= 30) return { label: 'Por vencer', color: 'var(--warning)', bg: 'var(--warning-soft)' };
+                                                        return { label: 'Vigente', color: 'var(--success)', bg: 'var(--success-soft)' };
+                                                    };
+                                                    const acta = client?.sanitary?.brucelosis?.actaDate || '';
+                                                    const proto = client?.sanitary?.tuberculosis?.protocoloDate || '';
+                                                    const expB = addMonths(acta, 12);
+                                                    const expT = addMonths(proto, 12);
+                                                    const sB = statusFor(expB);
+                                                    const sT = statusFor(expT);
+                                                    return (
+                                                        <>
+                                                            <span className="badge" style={{ background: sB.bg, color: sB.color }}>Brucelosis: {formatDMY(expB)} · {sB.label}</span>
+                                                            <span className="badge" style={{ background: sT.bg, color: sT.color }}>Tuberculosis: {formatDMY(expT)} · {sT.label}</span>
+                                                        </>
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="no-print" style={{ textAlign: 'right', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                                         <div className="form-group" style={{ margin: 0 }}>
