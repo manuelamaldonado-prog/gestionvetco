@@ -8,8 +8,35 @@ export default function ClientList() {
     const [showForm, setShowForm] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [formData, setFormData] = useState({
-        name: '', cuit: '', renspa: '', phone: '', email: '', address: '', city: '', province: '', ivaCondition: ''
+        name: '', cuit: '', renspa: '', phone: '', email: '', address: '', city: '', province: '', ivaCondition: '',
+        convertToKilos: false, showSanitary: true
     });
+    const addMonths = (iso, m) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const year = d.getFullYear();
+        const month = d.getMonth();
+        const day = d.getDate();
+        const nd = new Date(year, month + m, day);
+        return nd.toLocaleDateString('en-CA');
+    };
+    const formatDMY = (iso) => {
+        if (!iso) return '-';
+        const parts = iso.split('-');
+        if (parts.length !== 3) return '-';
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+    const statusFor = (expIso) => {
+        if (!expIso) return { label: '-', color: 'var(--text-secondary)', bg: 'var(--surface-hover)' };
+        const today = new Date().toLocaleDateString('en-CA');
+        const t = new Date(today);
+        const e = new Date(expIso);
+        const diffMs = e - t;
+        const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) return { label: 'Vencido', color: 'var(--danger)', bg: 'var(--danger-soft)' };
+        if (diffDays <= 30) return { label: 'Por vencer', color: 'var(--warning)', bg: 'var(--warning-soft)' };
+        return { label: 'Vigente', color: 'var(--success)', bg: 'var(--success-soft)' };
+    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -118,6 +145,28 @@ export default function ClientList() {
                                 <option value="Consumidor Final">Consumidor Final</option>
                             </select>
                         </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <input
+                                    type="checkbox"
+                                    id="convertToKilos"
+                                    checked={formData.convertToKilos}
+                                    onChange={e => setFormData({ ...formData, convertToKilos: e.target.checked })}
+                                    style={{ width: '1.2rem', height: '1.2rem' }}
+                                />
+                                <label htmlFor="convertToKilos" style={{ cursor: 'pointer' }}>Convertir a Kilos Novillo</label>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <input
+                                    type="checkbox"
+                                    id="showSanitary"
+                                    checked={formData.showSanitary}
+                                    onChange={e => setFormData({ ...formData, showSanitary: e.target.checked })}
+                                    style={{ width: '1.2rem', height: '1.2rem' }}
+                                />
+                                <label htmlFor="showSanitary" style={{ cursor: 'pointer' }}>Mostrar Información Sanitaria</label>
+                            </div>
+                        </div>
                         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                             <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
                             <button type="submit" className="btn btn-primary">Guardar</button>
@@ -164,7 +213,34 @@ export default function ClientList() {
                             >
                                 <div>
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', marginBottom: '0.25rem' }}>{client.name}</h3>
-                                    <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {client.ivaCondition && (
+                                            <span className="badge" style={{ background: 'var(--surface-hover)', color: 'var(--text-secondary)' }}>
+                                                IVA: {client.ivaCondition}
+                                            </span>
+                                        )}
+                                        {(() => {
+                                            const acta = client?.sanitary?.brucelosis?.actaDate || '';
+                                            const exp = addMonths(acta, 12);
+                                            const s = statusFor(exp);
+                                            return (
+                                                <span className="badge" style={{ background: s.bg, color: s.color }}>
+                                                    Venc. Brucelosis: {formatDMY(exp)}
+                                                </span>
+                                            );
+                                        })()}
+                                        {(() => {
+                                            const proto = client?.sanitary?.tuberculosis?.protocoloDate || '';
+                                            const exp = addMonths(proto, 12);
+                                            const s = statusFor(exp);
+                                            return (
+                                                <span className="badge" style={{ background: s.bg, color: s.color }}>
+                                                    Venc. Tuberculosis: {formatDMY(exp)}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
                                         {client.cuit && <span>CUIT: {client.cuit}</span>}
                                         {client.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={14} /> {client.phone}</span>}
                                     </div>

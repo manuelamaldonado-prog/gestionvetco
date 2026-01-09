@@ -5,12 +5,16 @@ import { Printer, Pencil, X, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function Reports() {
-    const { jobs, payments, clients, practices, getClientBalance, updatePayment, deletePayment, getIvaRateForClient } = useData();
-    const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'global' | 'annual'
+    const { jobs, payments, clients, practices, agendaEvents, getClientBalance, updatePayment, deletePayment, getIvaRateForClient } = useData();
+    const [viewMode, setViewMode] = useState('monthly'); // 'monthly' | 'global' | 'annual' | 'agenda_client'
     const [selectedMonth, setSelectedMonth] = useState(new Date().toLocaleDateString('en-CA').slice(0, 7)); // YYYY-MM
     const [showDetail, setShowDetail] = useState(true);
     const [editingCheque, setEditingCheque] = useState(null);
     const [hoveredAnnualMonth, setHoveredAnnualMonth] = useState(null);
+    const [agendaClientId, setAgendaClientId] = useState('');
+    const [clientReportType, setClientReportType] = useState('resumen'); // 'resumen' | 'agenda'
+    const [agendaFrom, setAgendaFrom] = useState('');
+    const [agendaTo, setAgendaTo] = useState('');
 
     // --- Monthly Logic ---
     const filteredJobs = jobs.filter(j => j.date.startsWith(selectedMonth));
@@ -103,10 +107,13 @@ export default function Reports() {
                     chequeBank: c.bank,
                     chequeDate: c.date,
                     destination: c.destination || p.destination,
-                    id: `${p.id}_${idx}` // Unique ID for list
+                    id: `${p.id}_${idx}`, // Unique ID for list
+                    originalPaymentId: p.id,
+                    chequeIndex: idx,
+                    isNested: true
                 }));
             }
-            return [p]; // Legacy single cheque
+            return [{ ...p, isNested: false }]; // Legacy single cheque
         })
         .map(p => ({
             ...p,
@@ -222,17 +229,75 @@ export default function Reports() {
 
     const submitEditCheque = (e) => {
         e.preventDefault();
-        if (editingCheque) {
+        if (!editingCheque) return;
+        if (editingCheque.isNested) {
+            const parent = payments.find(p => p.id === editingCheque.originalPaymentId);
+            if (!parent || !Array.isArray(parent.cheques)) {
+                setEditingCheque(null);
+                return;
+            }
+            const updatedCheques = parent.cheques.map((c, i) => {
+                if (i !== editingCheque.chequeIndex) return c;
+                return {
+                    ...c,
+                    bank: editingCheque.chequeBank || '',
+                    number: editingCheque.chequeNumber || '',
+                    date: editingCheque.chequeDate || '',
+                    amount: Number(editingCheque.amount || 0),
+                    destination: editingCheque.destination || c.destination || ''
+                };
+            });
+            const newTotalAmount = updatedCheques.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+            updatePayment(parent.id, {
+                cheques: updatedCheques,
+                amount: newTotalAmount,
+                date: editingCheque.date,
+                notes: editingCheque.notes
+            });
+        } else {
             updatePayment(editingCheque.id, {
                 chequeNumber: editingCheque.chequeNumber,
                 chequeBank: editingCheque.chequeBank,
                 chequeDate: editingCheque.chequeDate,
                 destination: editingCheque.destination,
-                amount: editingCheque.amount,
-                date: editingCheque.date
+                amount: Number(editingCheque.amount || 0),
+                date: editingCheque.date,
+                notes: editingCheque.notes
             });
-            setEditingCheque(null);
         }
+        setEditingCheque(null);
+    };
+
+    const deleteChequeItem = (item) => {
+        if (item.isNested) {
+            const parent = payments.find(p => p.id === item.originalPaymentId);
+            if (!parent || !Array.isArray(parent.cheques)) return;
+            const updatedCheques = parent.cheques.filter((_, i) => i !== item.chequeIndex);
+            const newTotalAmount = updatedCheques.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+            updatePayment(parent.id, { cheques: updatedCheques, amount: newTotalAmount });
+        } else {
+            deletePayment(item.id);
+        }
+    };
+
+    const addMonths = (iso, m) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()).toLocaleDateString('en-CA');
+    };
+    const formatDMY = (iso) => {
+        if (!iso) return '-';
+        const [y, mm, dd] = iso.split('-');
+        return `${dd}/${mm}/${y}`;
+    };
+    const statusFor = (expIso) => {
+        if (!expIso) return { label: '-', color: '#64748b', bg: '#f1f5f9' };
+        const t = new Date(new Date().toLocaleDateString('en-CA'));
+        const e = new Date(expIso);
+        const diffDays = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) return { label: 'Vencido', color: 'var(--danger)', bg: 'var(--danger-soft)' };
+        if (diffDays <= 30) return { label: 'Por vencer', color: 'var(--warning)', bg: 'var(--warning-soft)' };
+        return { label: 'Vigente', color: 'var(--success)', bg: 'var(--success-soft)' };
     };
 
     return (
@@ -279,6 +344,12 @@ export default function Reports() {
                     onClick={() => setViewMode('iva')}
                 >
                     IVA
+                </button>
+                <button
+                    className={`btn ${viewMode === 'agenda_client' ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setViewMode('agenda_client')}
+                >
+                    Agenda por Cliente
                 </button>
             </div>
             {viewMode === 'iva' && (
@@ -481,12 +552,14 @@ export default function Reports() {
                                 <table style={{ fontSize: '0.875rem' }}>
                                     <thead>
                                         <tr>
-                                            <th>Fecha</th>
+                                            <th>Fecha de entrega</th>
                                             <th>Descripción</th>
                                             <th>Banco</th>
                                             <th>Nº Cheque</th>
+                                            <th>Fecha de cobro</th>
                                             <th>Destino</th>
                                             <th style={{ textAlign: 'right' }}>Monto</th>
+                                            <th style={{ width: '80px' }}></th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -496,9 +569,14 @@ export default function Reports() {
                                                 <td>{item.notes || '-'}</td>
                                                 <td>{item.chequeBank || '-'}</td>
                                                 <td>{item.chequeNumber || '-'}</td>
+                                                <td>{item.chequeDate ? item.chequeDate.split('-').reverse().join('/') : '-'}</td>
                                                 <td>{item.destination || '-'}</td>
                                                 <td style={{ textAlign: 'right', fontWeight: 500 }}>
                                                     ${Number(item.amount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                                </td>
+                                                <td style={{ textAlign: 'right' }}>
+                                                    <button className="icon-btn" title="Editar" onClick={() => handleEditCheque(item)}><Pencil size={16} /></button>
+                                                    <button className="icon-btn" title="Eliminar" onClick={() => deleteChequeItem(item)} style={{ marginLeft: '6px', color: 'var(--danger)' }}><Trash2 size={16} /></button>
                                                 </td>
                                             </tr>
                                         ))}
@@ -507,6 +585,51 @@ export default function Reports() {
                             </div>
                         </div>
                     ))}
+                    
+                    {editingCheque && (
+                        <div className="modal-backdrop">
+                            <div className="modal card" style={{ maxWidth: '520px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <h3 style={{ margin: 0 }}>Editar Cheque</h3>
+                                    <button className="icon-btn" onClick={() => setEditingCheque(null)}><X size={18} /></button>
+                                </div>
+                                <form onSubmit={submitEditCheque}>
+                                    <div className="form-group">
+                                        <label className="form-label">Fecha de entrega</label>
+                                        <input type="date" className="form-input" value={editingCheque.date || ''} onChange={e => setEditingCheque({ ...editingCheque, date: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Descripción</label>
+                                        <input className="form-input" value={editingCheque.notes || ''} onChange={e => setEditingCheque({ ...editingCheque, notes: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Banco</label>
+                                        <input className="form-input" value={editingCheque.chequeBank || ''} onChange={e => setEditingCheque({ ...editingCheque, chequeBank: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Número de cheque</label>
+                                        <input className="form-input" value={editingCheque.chequeNumber || ''} onChange={e => setEditingCheque({ ...editingCheque, chequeNumber: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Fecha de cobro</label>
+                                        <input type="date" className="form-input" value={editingCheque.chequeDate || ''} onChange={e => setEditingCheque({ ...editingCheque, chequeDate: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Destino</label>
+                                        <input className="form-input" value={editingCheque.destination || ''} onChange={e => setEditingCheque({ ...editingCheque, destination: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Monto</label>
+                                        <input type="number" step="0.01" className="form-input" value={editingCheque.amount || ''} onChange={e => setEditingCheque({ ...editingCheque, amount: e.target.value })} />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                        <button type="button" className="btn btn-secondary" onClick={() => setEditingCheque(null)}>Cancelar</button>
+                                        <button type="submit" className="btn btn-primary">Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
 
@@ -515,6 +638,40 @@ export default function Reports() {
                     <div className="card" style={{ background: 'var(--success)', color: 'white', marginBottom: '1.5rem' }}>
                         <div style={{ opacity: 0.8, fontSize: '0.875rem' }}>Total en Efectivo</div>
                         <div style={{ fontSize: '2rem', fontWeight: 'bold' }}>${totalCash.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className="table-wrapper">
+                            <table style={{ fontSize: '0.875rem' }}>
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Cliente</th>
+                                        <th>Concepto</th>
+                                        <th style={{ textAlign: 'right' }}>Neto imputado</th>
+                                        <th style={{ textAlign: 'right' }}>IVA imputado</th>
+                                        <th>Observaciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {payments.filter(p => p.method === 'CASH' && p.date.startsWith(selectedMonth)).length === 0 ? (
+                                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">Sin movimientos en efectivo</td></tr>
+                                    ) : (
+                                        payments
+                                            .filter(p => p.method === 'CASH' && p.date.startsWith(selectedMonth))
+                                            .map(p => (
+                                                <tr key={p.id}>
+                                                    <td>{p.date.split('-').reverse().join('/')}</td>
+                                                    <td>{clients.find(c => c.id === p.clientId)?.name || '-'}</td>
+                                                    <td>Efectivo</td>
+                                                    <td style={{ textAlign: 'right' }}>${Number(p.netImputed || 0).toLocaleString('es-AR')}</td>
+                                                    <td style={{ textAlign: 'right' }}>${Number(p.ivaImputed || 0).toLocaleString('es-AR')}</td>
+                                                    <td>{p.notes || '-'}</td>
+                                                </tr>
+                                            ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </>
             )}
@@ -698,6 +855,130 @@ export default function Reports() {
                             </table>
                         </div>
                     </div>
+                </>
+            )}
+            {viewMode === 'agenda_client' && (
+                <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h3>Reporte por Cliente</h3>
+                        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                            <select
+                                className="form-input"
+                                value={agendaClientId}
+                                onChange={e => setAgendaClientId(e.target.value)}
+                                style={{ minWidth: '240px' }}
+                            >
+                                <option value="">Seleccionar Cliente...</option>
+                                {clients.sort((a, b) => a.name.localeCompare(b.name)).map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                            <div className="no-print" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input type="radio" name="repotype" checked={clientReportType === 'resumen'} onChange={() => setClientReportType('resumen')} />
+                                    Resumen de cuenta
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <input type="radio" name="repotype" checked={clientReportType === 'agenda'} onChange={() => setClientReportType('agenda')} />
+                                    Agenda
+                                </label>
+                            </div>
+                            <button className="btn btn-primary" onClick={() => window.print()}><Printer size={16} /> Imprimir</button>
+                        </div>
+                    </div>
+                    {!agendaClientId ? (
+                        <div className="card text-muted">Seleccione un cliente para ver su agenda.</div>
+                    ) : (
+                        <>
+                            <div className="card" style={{ marginBottom: '1rem', paddingBottom: 0 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
+                                    <div>
+                                        <h3 style={{ margin: 0 }}>{clients.find(c => c.id === agendaClientId)?.name || '-'}</h3>
+                                        <div className="text-secondary text-sm">
+                                            IVA: {clients.find(c => c.id === agendaClientId)?.ivaCondition || '-'}
+                                        </div>
+                                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                            {(() => {
+                                                const acta = clients.find(c => c.id === agendaClientId)?.sanitary?.brucelosis?.actaDate || '';
+                                                const exp = addMonths(acta, 12);
+                                                const s = statusFor(exp);
+                                                return <span className="badge" style={{ background: s.bg, color: s.color }}>Brucelosis: {formatDMY(exp)} · {s.label}</span>;
+                                            })()}
+                                            {(() => {
+                                                const proto = clients.find(c => c.id === agendaClientId)?.sanitary?.tuberculosis?.protocoloDate || '';
+                                                const exp = addMonths(proto, 12);
+                                                const s = statusFor(exp);
+                                                return <span className="badge" style={{ background: s.bg, color: s.color }}>Tuberculosis: {formatDMY(exp)} · {s.label}</span>;
+                                            })()}
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        {clientReportType === 'resumen' && (() => {
+                                            const bal = getClientBalance(agendaClientId);
+                                            return (
+                                                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                                                    <div style={{ background: '#f5f5f5', color: 'var(--text-main)', padding: '0.75rem 1rem', borderRadius: '4px', border: '1px solid #ddd' }}>
+                                                        <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Saldo Neto</div>
+                                                        <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>${bal.net.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                                                    </div>
+                                                    <div style={{ background: '#000', color: '#fff', padding: '0.75rem 1rem', borderRadius: '4px' }}>
+                                                        <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>Saldo Total</div>
+                                                        <div style={{ fontSize: '1.25rem', fontWeight: 'bold' }}>${bal.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                        {clientReportType === 'agenda' && (
+                                            <div className="no-print" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="form-label">Desde</label>
+                                                    <input type="date" className="form-input" value={agendaFrom} onChange={e => setAgendaFrom(e.target.value)} />
+                                                </div>
+                                                <div className="form-group" style={{ margin: 0 }}>
+                                                    <label className="form-label">Hasta</label>
+                                                    <input type="date" className="form-input" value={agendaTo} onChange={e => setAgendaTo(e.target.value)} />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            {clientReportType === 'agenda' && (
+                                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                                    <div className="table-wrapper">
+                                        <table style={{ fontSize: '0.875rem' }}>
+                                            <thead>
+                                                <tr>
+                                                    <th>Fecha</th>
+                                                    <th>Hora</th>
+                                                    <th>Trabajo / Servicio</th>
+                                                    <th>Observaciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {agendaEvents
+                                                    .filter(e => e.clientId === agendaClientId)
+                                                    .filter(e => {
+                                                        if (agendaFrom && e.date < agendaFrom) return false;
+                                                        if (agendaTo && e.date > agendaTo) return false;
+                                                        return true;
+                                                    })
+                                                    .sort((a, b) => new Date(a.date) - new Date(b.date) || (a.time || '').localeCompare(b.time || ''))
+                                                    .map(e => (
+                                                        <tr key={e.id}>
+                                                            <td>{e.date.split('-').reverse().join('/')}</td>
+                                                            <td>{e.time || '-'}</td>
+                                                            <td>{e.title}</td>
+                                                            <td>{e.notes || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
                 </>
             )}
         </div>

@@ -50,6 +50,7 @@ export function DataProvider({ children }) {
         practices: Array.isArray(parsed.practices) ? parsed.practices : [],
         jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
         payments: Array.isArray(parsed.payments) ? parsed.payments : [],
+        adjustments: Array.isArray(parsed.adjustments) ? parsed.adjustments : [],
         agendaEvents: Array.isArray(parsed.agendaEvents) ? parsed.agendaEvents : [],
         businessInfo: normalizedBI
       };
@@ -128,7 +129,7 @@ export function DataProvider({ children }) {
 
   // Payments
   const addPayment = (payment) => {
-    // payment needs: clientId, amount, method, date, extraDetails, paymentType (BLANCO/OTRO)
+    // payment needs: clientId, amount, method, date, extraDetails
     setData(prev => ({
       ...prev,
       payments: [...prev.payments, { ...payment, id: uuidv4(), createdAt: new Date().toISOString() }]
@@ -187,16 +188,10 @@ export function DataProvider({ children }) {
         net += jNet;
         iva += (jNet * ivaRate);
       } else if (item.type === 'PAYMENT') {
-        const amount = Number(item.amount) || 0;
-        const type = item.paymentType || 'BLANCO';
-        if (type === 'BLANCO') {
-          const netPart = amount * 0.79;
-          const ivaPart = amount * 0.21;
-          net -= netPart;
-          iva -= ivaPart;
-        } else {
-          net -= amount;
-        }
+        const netPart = Number(item.netImputed) || 0;
+        const ivaPart = Number(item.ivaImputed) || 0;
+        net -= netPart;
+        iva -= ivaPart;
       } else if (item.type === 'ADJUSTMENT') {
         if (item.operationType === 'IVA_COMP') {
           const comp = Number(item.amount) || 0;

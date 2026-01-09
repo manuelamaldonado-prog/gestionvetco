@@ -16,6 +16,7 @@ export default function Agenda() {
     // Form State
     const [formData, setFormData] = useState({
         date: '',
+        time: '',
         title: '',
         clientId: '',
         notes: ''
@@ -60,6 +61,7 @@ export default function Agenda() {
         setSelectedDate(dateStr);
         setFormData({
             date: dateStr,
+            time: '',
             title: '',
             clientId: '',
             notes: ''
@@ -72,6 +74,7 @@ export default function Agenda() {
         setEditingEvent(event);
         setFormData({
             date: event.date,
+            time: event.time || '',
             title: event.title,
             clientId: event.clientId,
             notes: event.notes || ''
@@ -147,7 +150,7 @@ export default function Agenda() {
                                 title={`${event.title} - ${clientName}\n${event.notes}`}
                             >
                                 <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {event.title}
+                                    {event.time ? `${event.time} ` : ''}{event.title}
                                 </div>
                                 <div style={{ fontSize: '0.7rem', opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {clientName}
@@ -231,6 +234,15 @@ export default function Agenda() {
                                     value={formData.date}
                                     onChange={e => setFormData({...formData, date: e.target.value})}
                                     required 
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Hora</label>
+                                <input 
+                                    type="time" 
+                                    className="form-input" 
+                                    value={formData.time}
+                                    onChange={e => setFormData({...formData, time: e.target.value})}
                                 />
                             </div>
                             

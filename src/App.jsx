@@ -10,6 +10,7 @@ import Reports from './components/Reports';
 import MonthlyStatement from './components/MonthlyStatement';
 import CustomStatement from './components/CustomStatement';
 import Agenda from './components/Agenda';
+import AgendaStatement from './components/AgendaStatement';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/reports/statement/:clientId/:month" element={<MonthlyStatement />} />
             <Route path="/reports/custom-statement/:clientId/:fromDate/:toDate" element={<CustomStatement />} />
+            <Route path="/reports/agenda-statement/:clientId/:fromDate/:toDate" element={<AgendaStatement />} />
             <Route path="/catalog" element={<PracticeCatalog />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

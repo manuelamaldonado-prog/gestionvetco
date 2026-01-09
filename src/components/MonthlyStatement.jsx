@@ -9,6 +9,8 @@ export default function MonthlyStatement() {
     const { clients, jobs, payments, adjustments, practices, businessInfo, getIvaRateForClient } = useData();
 
     const [client, setClient] = useState(null);
+    const [emailRecipient, setEmailRecipient] = useState('');
+    const [whatsappRecipient, setWhatsappRecipient] = useState('');
 
     useEffect(() => {
         const c = clients.find(c => c.id === clientId);
@@ -27,6 +29,25 @@ export default function MonthlyStatement() {
     }
 
     const ivaRate = getIvaRateForClient(client.id);
+    const addMonths = (iso, m) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return new Date(d.getFullYear(), d.getMonth() + m, d.getDate()).toLocaleDateString('en-CA');
+    };
+    const formatDMY = (iso) => {
+        if (!iso) return '-';
+        const [y, mm, dd] = iso.split('-');
+        return `${dd}/${mm}/${y}`;
+    };
+    const statusFor = (expIso) => {
+        if (!expIso) return { label: '-', color: '#64748b', bg: '#f1f5f9' };
+        const t = new Date(new Date().toLocaleDateString('en-CA'));
+        const e = new Date(expIso);
+        const diffDays = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) return { label: 'Vencido', color: 'var(--danger)', bg: 'var(--danger-soft)' };
+        if (diffDays <= 30) return { label: 'Por vencer', color: 'var(--warning)', bg: 'var(--warning-soft)' };
+        return { label: 'Vigente', color: 'var(--success)', bg: 'var(--success-soft)' };
+    };
 
     // Filter Data
     const monthStart = `${month}-01`;
@@ -54,16 +75,10 @@ export default function MonthlyStatement() {
                 net += jNet;
                 iva += (jNet * rate);
             } else if (item.type === 'PAYMENT') {
-                const amount = Number(item.amount) || 0;
-                const type = item.paymentType || 'BLANCO';
-                if (type === 'BLANCO') {
-                    const netPart = amount * 0.79;
-                    const ivaPart = amount * 0.21;
-                    net -= netPart;
-                    iva -= ivaPart;
-                } else {
-                    net -= amount;
-                }
+                const netPart = Number(item.netImputed) || 0;
+                const ivaPart = Number(item.ivaImputed) || 0;
+                net -= netPart;
+                iva -= ivaPart;
             } else if (item.type === 'ADJUSTMENT') {
                 if (item.operationType === 'IVA_COMP') {
                     const comp = Number(item.amount) || 0;
@@ -101,14 +116,47 @@ export default function MonthlyStatement() {
     const handlePrint = () => {
         window.print();
     };
+    const composeStatementText = () => {
+        const lines = [];
+        lines.push(`Resumen de Cuenta · ${client.name}`);
+        lines.push(`Periodo: ${month}`);
+        const acta = client?.sanitary?.brucelosis?.actaDate || '';
+        const proto = client?.sanitary?.tuberculosis?.protocoloDate || '';
+        lines.push(`Brucelosis: Vence ${formatDMY(addMonths(acta, 12))}`);
+        lines.push(`Tuberculosis: Vence ${formatDMY(addMonths(proto, 12))}`);
+        lines.push('');
+        lines.push(`Saldo Anterior Total: $${previousBalance.total.toLocaleString('es-AR')}`);
+        lines.push(`Facturado Neto: $${currentJobs.reduce((acc, j) => acc + Number(j.total), 0).toLocaleString('es-AR')}`);
+        lines.push(`IVA del Periodo: $${currentJobs.reduce((acc, j) => acc + (Number(j.total) * ivaRate), 0).toLocaleString('es-AR')}`);
+        lines.push(`Pagos del Periodo: $${currentPayments.reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString('es-AR')}`);
+        lines.push(`Saldo Final Total: $${finalBalance.total.toLocaleString('es-AR')}`);
+        return lines.join('\n');
+    };
+    const shareEmail = () => {
+        const subject = `Resumen ${client.name} ${month}`;
+        const body = composeStatementText();
+        const mailto = `mailto:${encodeURIComponent(emailRecipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        window.open(mailto, '_blank');
+    };
+    const shareWhatsApp = () => {
+        const text = composeStatementText();
+        const wa = whatsappRecipient
+            ? `https://wa.me/${encodeURIComponent(whatsappRecipient)}?text=${encodeURIComponent(text)}`
+            : `https://wa.me/?text=${encodeURIComponent(text)}`;
+        window.open(wa, '_blank');
+    };
 
     return (
         <div className="container" style={{ maxWidth: '800px', background: 'white', minHeight: '100vh', padding: '2rem' }}>
 
             {/* No-Print Controls */}
-            <div className="no-print" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+            <div className="no-print" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', alignItems: 'center' }}>
                 <button onClick={() => navigate(-1)} className="btn btn-secondary"><ArrowLeft size={16} /> Volver</button>
                 <button onClick={handlePrint} className="btn btn-primary"><Printer size={16} /> Imprimir</button>
+                <input className="form-input" placeholder="Email destino" value={emailRecipient} onChange={e => setEmailRecipient(e.target.value)} style={{ width: '220px' }} />
+                <button className="btn btn-secondary" onClick={shareEmail}>Enviar Email</button>
+                <input className="form-input" placeholder="WhatsApp destino (ej. 549XXXXXXXXXX)" value={whatsappRecipient} onChange={e => setWhatsappRecipient(e.target.value)} style={{ width: '230px' }} />
+                <button className="btn btn-secondary" onClick={shareWhatsApp}>Enviar WhatsApp</button>
             </div>
 
             {/* Header */}
@@ -134,6 +182,20 @@ export default function MonthlyStatement() {
                             </div>
                         )}
                         <div className="text-secondary text-sm">{client.phone}</div>
+                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {(() => {
+                                const acta = client?.sanitary?.brucelosis?.actaDate || '';
+                                const exp = addMonths(acta, 12);
+                                const s = statusFor(exp);
+                                return <span className="badge" style={{ background: s.bg, color: s.color }}>Brucelosis: {formatDMY(exp)} · {s.label}</span>;
+                            })()}
+                            {(() => {
+                                const proto = client?.sanitary?.tuberculosis?.protocoloDate || '';
+                                const exp = addMonths(proto, 12);
+                                const s = statusFor(exp);
+                                return <span className="badge" style={{ background: s.bg, color: s.color }}>Tuberculosis: {formatDMY(exp)} · {s.label}</span>;
+                            })()}
+                        </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '0.875rem', color: '#666' }}>Periodo</div>
@@ -245,10 +307,10 @@ export default function MonthlyStatement() {
                                 </td>
                                 <td style={{ padding: '0.5rem', textAlign: 'center' }}>-</td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
+                                <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>
                                     {a.operationType === 'IVA_COMP' ? `-$${Number(a.amount).toLocaleString('es-AR')}` : '-'}
                                 </td>
-                                <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
                                 <td style={{ padding: '0.5rem', textAlign: 'right' }}>-</td>
